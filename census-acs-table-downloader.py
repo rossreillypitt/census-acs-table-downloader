@@ -82,7 +82,9 @@ selected_table_info = []
 for x in range(len(seq_header_dF)):
     if table_id in seq_header_dF.iloc[x][0]:
         selected_table_info.append(seq_header_dF.iloc[x])
-
+        
+### put the selected_table_info[0][2] into a set, and then have different rules if the set is len == 1, len == 2, etc. 
+        
 sequence = selected_table_info[0][2]
 seq_end = int(sequence) + 1
 
