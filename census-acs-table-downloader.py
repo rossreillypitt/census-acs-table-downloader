@@ -4,12 +4,13 @@ from io import BytesIO
 import pandas as pd
 import sys
 import numpy as np
+import os.path
 
 year = 2019
 st = "pa"
-table_id = "C23002"
+table_id = "B25004"
 
-sys.argv = "file", 2019, "pa", "C23002"
+sys.argv = "file", 2019, "pa", "B25004"
 
 if len(sys.argv) > 1:
     try:
@@ -74,7 +75,12 @@ for x in range(1, len(read_file.namelist())):
         pass
 seq_header_dF = pd.concat(seq_header_list)
 seq_header_dF.reset_index(drop=True)
-print(seq_header_dF)
+
+seq_header_file_name = f'{year}_acs_sequence_labels.csv'
+if os.path.exists(seq_header_file_name):
+    pass
+else:
+    seq_header_dF.to_csv(seq_header_file_name)
 
 ############# NEW code below ##########################
 
@@ -84,31 +90,40 @@ for x in range(len(seq_header_dF)):
         selected_table_info.append(seq_header_dF.iloc[x])
         
 ### put the selected_table_info[0][2] into a set, and then have different rules if the set is len == 1, len == 2, etc. 
-        
-sequence = selected_table_info[0][2]
-seq_end = int(sequence) + 1
+sequences = set()
+for item in selected_table_info:
+    sequences.add(item[2])
 
-y = 0
+seq_end = f'{int(max(sequences)) + 1:04d}'
+sequences = list(sequences)
+sequences.sort()
+
+y=0
 column_list = []
-for x in range(len(seq_header_dF)): 
-    if seq_header_dF.iloc[x, 2] == sequence:
-        y += 1
-        if table_id in seq_header_dF.iloc[x][0]:
-            column_list.append(y+5)
+for item in sequences:
+    y=0
+    column_staging_list = []
+    for x in range(len(seq_header_dF)):
+        if item == seq_header_dF.iloc[x,2]:  
+            if table_id in seq_header_dF.iloc[x][0]:
+                column_staging_list.append(y)
+            y+=1
+    column_list.append(column_staging_list)
 
 ############# copied code below ##########################
 
-def acs_5yr_csv_output_all(year, st_abbv, sequence, seq_end):
-    def grabber(geog_type, sequence):
+def acs_5yr_csv_output_all(year, st_abbv, sequences, seq_end):
+    def grabber(geog_type, sequences):
         flag = True
         concat_dF = pd.DataFrame([])
-        sequence = int(sequence)
         ongoing_estimate_dF = pd.DataFrame([])
         ongoing_margin_dF = pd.DataFrame([])
-        while sequence < int(seq_end):
-            zip_file_name = f'{year}5{st_abbv}{sequence:04d}000.zip'
-            e_file_name = f'e{year}5{st_abbv}{sequence:04d}000.txt'
-            m_file_name = f'm{year}5{st_abbv}{sequence:04d}000.txt'
+        for x in range(len(sequences)):
+            staging_estimate_dF = pd.DataFrame([])
+            staging_margin_dF = pd.DataFrame([])
+            zip_file_name = f'{year}5{st_abbv}{sequences[x]}000.zip'
+            e_file_name = f'e{year}5{st_abbv}{sequences[x]}000.txt'
+            m_file_name = f'm{year}5{st_abbv}{sequences[x]}000.txt'
             tract_file_check = requests.head(
                 f'{base_url}{year}/data/5_year_seq_by_state/{state_name_abbr_dict[st_abbv]}{geog_type}{zip_file_name}')
             if tract_file_check.status_code == 200:
@@ -121,32 +136,45 @@ def acs_5yr_csv_output_all(year, st_abbv, sequence, seq_end):
                                                 dtype=str)
                 margin_seq_txt = pd.read_csv(read_file.open(m_file_name), header=None,
                                                 dtype=str)
-                ongoing_estimate_dF = pd.concat([ongoing_estimate_dF, estimate_seq_txt]).reset_index(drop=True)
-                ongoing_margin_dF = pd.concat([ongoing_margin_dF, margin_seq_txt]).reset_index(drop=True)               
-                sequence += 1
+                ongoing_estimate_dF = pd.concat([ongoing_estimate_dF, estimate_seq_txt], axis=1).reset_index(drop=True)
+                ongoing_margin_dF = pd.concat([ongoing_margin_dF, margin_seq_txt], axis=1).reset_index(drop=True)
             else:
-                print(f'Could not access sequence #{sequence}')
-                sequence += 1
+                print(f'Could not access sequence #{sequence[x]}')
         return ongoing_estimate_dF, ongoing_margin_dF
 
-    tract_block_estimate_dF, tract_block_margin_dF = grabber(tract_block_loc, sequence)
-    all_other_estimate_dF, all_other_margin_dF = grabber(all_other_loc, sequence)
+    tract_block_estimate_dF, tract_block_margin_dF = grabber(tract_block_loc, sequences)
+    all_other_estimate_dF, all_other_margin_dF = grabber(all_other_loc, sequences)
     combined_estimate_dF = pd.concat([tract_block_estimate_dF, all_other_estimate_dF]).reset_index(drop=True)
     combined_margin_dF = pd.concat([tract_block_margin_dF, all_other_margin_dF]).reset_index(drop=True)
     return combined_estimate_dF, combined_margin_dF
 
+table_111 = acs_5yr_csv_output_all(year, st, sequences, seq_end)
+
 ############# NEW code below ##########################
 
-table_111 = acs_5yr_csv_output_all(year, st, sequence, seq_end)
+final_columns = []
+for y in range(len(sequences)):
+    for x in range(len(table_111[0].iloc[1,])):
+        if table_111[0].iloc[1,x] == sequences[y]:
+            final_columns.extend(item + (x+2) for item in column_list[y])
+            break
+
+end_list_e = []
+end_list_m = []
+for x in range(len(final_columns)):
+    end_list_e.append(table_111[0].iloc[:,final_columns[x]])
+    end_list_m.append(table_111[1].iloc[:, final_columns[x]])
+end_df_e = pd.DataFrame(end_list_e).reset_index(drop=True)
+end_df_m = pd.DataFrame(end_list_m).reset_index(drop=True)
 
 final_geog_staging_list = []
-for x in range(len(table_111[0][5])):
-    final_geog_staging_list.append([table_111[0][5][x], logrecno_dict[table_111[0][5][x]][0], logrecno_dict[table_111[0][5][x]][1]])
+for x in range(len(table_111[0].iloc[:,5])):
+    final_geog_staging_list.append([table_111[0].iloc[x,5], logrecno_dict[table_111[0].iloc[x,5]][0], logrecno_dict[table_111[0].iloc[x,5]][1]])
 final_geog_staging_dF = pd.DataFrame(final_geog_staging_list) 
 
-needed_estimate_table = pd.concat([table_111[0].iloc[:, 0:6], final_geog_staging_dF, table_111[0].iloc[:,column_list[0]:column_list[-1]+1]], axis=1).reset_index(drop=True)
-needed_margin_table = pd.concat([table_111[1].iloc[:, 0:6], final_geog_staging_dF, table_111[1].iloc[:,column_list[0]:column_list[-1]+1]], axis=1).reset_index(drop=True)
-final_table_columns = ["Survey", "FileType", "State", "Chariter", "Sequence", "Logrecno", "Logrecno", "GEOID", "Location"]
+needed_estimate_table = pd.concat([table_111[0].iloc[:, 0:4], final_geog_staging_dF, end_df_e.T], axis=1)
+needed_margin_table = pd.concat([table_111[1].iloc[:, 0:4], final_geog_staging_dF, end_df_m.T], axis=1)
+final_table_columns = ["Survey", "FileType", "State", "Chariter", "Logrecno", "GEOID", "Location"]
 for x in range(len(selected_table_info)):
     final_table_columns.append(f'{selected_table_info[x][0]}: {selected_table_info[x][1]}')
 needed_estimate_table.columns, needed_margin_table.columns = final_table_columns, final_table_columns
