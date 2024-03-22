@@ -5,12 +5,14 @@ import pandas as pd
 import sys
 import numpy as np
 import os.path
+import pip
+import openpyxl
 
-year = 2019
+year = 2021
 st = "pa"
-table_id = "B25004"
+table_id = "B28002"
 
-sys.argv = "file", 2019, "pa", "B25004"
+sys.argv = "file", 2021, "pa", "B28002"
 
 if len(sys.argv) > 1:
     try:
@@ -29,7 +31,9 @@ else:
 base_url = 'https://www2.census.gov/programs-surveys/acs/summary_file/'
 tract_block_loc = '/Tracts_Block_Groups_Only/'
 all_other_loc = '/All_Geographies_Not_Tracts_Block_Groups/'
-tract_block_url = f'https://www2.census.gov/programs-surveys/acs/summary_file/{year}/data/5_year_seq_by_state/Pennsylvania/Tracts_Block_Groups_Only/'
+post_2020_add_on = '/sequence-based-SF' if year > 2020 else ''
+# tract_block_url = f'https://www2.census.gov/programs-surveys/acs/summary_file/{year}/data/5_year_seq_by_state/Pennsylvania/Tracts_Block_Groups_Only/'
+tract_block_url = f'https://www2.census.gov/programs-surveys/acs/summary_file/{year}{post_2020_add_on}/data/5_year_seq_by_state/Pennsylvania/Tracts_Block_Groups_Only/'
 all_other_url = f'https://www2.census.gov/programs-surveys/acs/summary_file/{year}/data/5_year_seq_by_state/Pennsylvania/All_Geographies_Not_Tracts_Block_Groups/'
 
 #creates a dictionary with state postal abbreviations as keys and full state names (styled as they would be in Census URLs) as the values.
@@ -56,23 +60,45 @@ for i in range(len(geog_dict)):
 
 #creates table of labels for sequences
 zip_file_name = f'{year}_5yr_Summary_FileTemplates.zip'
-zipped_file = requests.get(f'{base_url}{year}/data/{zip_file_name}')
+zipped_file = requests.get(f'{base_url}{year}{post_2020_add_on}/data/{zip_file_name}')
 read_file = zipfile.ZipFile(BytesIO(zipped_file.content))
 seq_header_list = []
-url_capture_idx = 0
-if "seq" in read_file.namelist()[url_capture_idx]:
-    url, filename = read_file.namelist()[url_capture_idx].split("seq")
-else: 
-    url, filename = read_file.namelist()[url_capture_idx+1].split("seq")
-for x in range(1, len(read_file.namelist())):
+# url_capture_idx = 0
+# for item in read_file.namelist():
+#     try:
+#         if "seq" in item.lower():
+#             full_filename = item
+#             break
+#     except Exception as e:
+#         print(e.args, "check line 77, there's a problem with the zip file structure")
+#         quit()
+# format = full_filename.split(".")[-1]
+# path_in_zip = "/".join(full_filename.split("/")[:-1])
+# if len(path_in_zip) > 0:
+#     path_in_zip += "/"
+# file_seq_style = full_filename.split("/")[-1][:3]
+
+list_of_files_to_read = [filename for filename in read_file.namelist() if "seq" in filename.lower()]
+for filename in list_of_files_to_read:
+    num = int(filename.lower().split("seq")[-1].split(".")[0])
     try:
-        file_to_read = f'{url}seq{x}.xlsx'
-        seq_header_txt = pd.read_excel(read_file.read(file_to_read), header=None)
+        seq_header_txt = pd.read_excel(read_file.read(filename), header=None)
         seq_header_txt = seq_header_txt.iloc[:, 6:].transpose()
-        seq_header_txt.loc[:, len(seq_header_txt.columns)]=f'{x:04d}'
-        seq_header_list.append(seq_header_txt)        
+        seq_header_txt.loc[:, len(seq_header_txt.columns)]=f'{num:04d}'
+        seq_header_list.append(seq_header_txt)
     except ValueError:
+        print("had one of those valueerrors")
         pass
+
+# for x in range(1, len(read_file.namelist())):
+#     try:
+#         file_to_read = f'{path_in_zip}{file_seq_style}{x}.{format}'
+#         seq_header_txt = pd.read_excel(read_file.read(file_to_read), header=None)
+#         seq_header_txt = seq_header_txt.iloc[:, 6:].transpose()
+#         seq_header_txt.loc[:, len(seq_header_txt.columns)]=f'{x:04d}'
+#         seq_header_list.append(seq_header_txt)
+#     except ValueError:
+#         pass
 seq_header_dF = pd.concat(seq_header_list)
 seq_header_dF.reset_index(drop=True)
 
@@ -125,11 +151,11 @@ def acs_5yr_csv_output_all(year, st_abbv, sequences, seq_end):
             e_file_name = f'e{year}5{st_abbv}{sequences[x]}000.txt'
             m_file_name = f'm{year}5{st_abbv}{sequences[x]}000.txt'
             tract_file_check = requests.head(
-                f'{base_url}{year}/data/5_year_seq_by_state/{state_name_abbr_dict[st_abbv]}{geog_type}{zip_file_name}')
+                f'{base_url}{year}{post_2020_add_on}/data/5_year_seq_by_state/{state_name_abbr_dict[st_abbv]}{geog_type}{zip_file_name}')
             if tract_file_check.status_code == 200:
                 flag = True
                 zipped_file = requests.get(
-                    f'{base_url}{year}/data/5_year_seq_by_state/{state_name_abbr_dict[st_abbv]}{geog_type}{zip_file_name}')
+                    f'{base_url}{year}{post_2020_add_on}/data/5_year_seq_by_state/{state_name_abbr_dict[st_abbv]}{geog_type}{zip_file_name}')
                 read_file = zipfile.ZipFile(BytesIO(zipped_file.content))
 
                 estimate_seq_txt = pd.read_csv(read_file.open(e_file_name), header=None,
@@ -139,7 +165,7 @@ def acs_5yr_csv_output_all(year, st_abbv, sequences, seq_end):
                 ongoing_estimate_dF = pd.concat([ongoing_estimate_dF, estimate_seq_txt], axis=1).reset_index(drop=True)
                 ongoing_margin_dF = pd.concat([ongoing_margin_dF, margin_seq_txt], axis=1).reset_index(drop=True)
             else:
-                print(f'Could not access sequence #{sequence[x]}')
+                print(f'Could not access sequence #{sequences[x]}')
         return ongoing_estimate_dF, ongoing_margin_dF
 
     tract_block_estimate_dF, tract_block_margin_dF = grabber(tract_block_loc, sequences)
